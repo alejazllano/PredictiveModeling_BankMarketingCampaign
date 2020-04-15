@@ -1,0 +1,721 @@
+---
+title: "Individual Project - Statistical & Machine Learning"
+author: "**By: Alejandra Zambrano**"
+date: "March 29, 2020"
+output: word_document
+---
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE,include=FALSE}
+
+if(!require("dplyr")) install.packages("dplyr");library(dplyr)
+if(!require("ggplot2")) install.packages("ggplot2");library(ggplot2)
+if(!require("tidyverse")) install.packages("tidyverse");library(tidyverse)
+if(!require("randomForest")) install.packages("randomForest");library(randomForest)
+if(!require("vita")) install.packages("vita");library(vita)
+if(!require("multipanelfigure")) install.packages("multipanelfigure");library(multipanelfigure)
+if(!require("reshape2")) install.packages("reshape2");library(reshape2)
+if(!require("mlr")) install.packages("mlr");library(mlr)
+if(!require("randomForest")) install.packages("randomForest");library(randomForest)
+if(!require("caret")) install.packages("caret");library(caret)
+
+```
+
+## Introduction
+The goal of this project is to describe, implement and analyze the results of five machine learning algorithms in order to get the most accurate predictions for the response to a subscription term deposit campaign in a bank.
+
+The algorithms used are:
+  
+  * Random Forest Classifier 
+* Logistic Regression
+* Xtreme Gradient Boosting
+* Gradient Boosting
+* K-Nearest Neighbors
+
+During the report, I will explain each ML algorithm, review about some advantages and disadvantages, and finally, apply the best models in the data set for testing in a Kaggle competition. This work also involves the application of some feature selection methods and cross-validation techniques.
+
+## Banking Dataset
+For developing of this work, we will use a dataset from a bank's telemarketing campaign to sell long-term deposits, the target variable is the variable subscribe (numeric: 1 = 'yes', 0 = 'no') and it refers if the client subscribed the term deposit. This dataset has 7000 observations and 21 predictive variables:
+
+* **Group 1: Bank client data:**
+  1. client_id : unique ID of the client (numeric)
+  2. age : client age (numeric)
+  3. job : type of job (categorical: 'admin.', 'blue-collar', 'entrepreneur', 'housemaid', 'management', 'retired', 'self-employed',   'services', 'student', 'technician', 'unemployed', 'unknown')
+  4. marital : marital status (categorical: 'divorced', 'married', 'single', 'unknown'; note: 'divorced' means divorced or widowed)
+  5. education (categorical: 'basic.4y', 'basic.6y', 'basic.9y', 'high.school', 'illiterate', 'professional.course', 'university.degree', 'unknown')
+  6. default : has credit in default? (categorical: 'no', 'yes', 'unknown')
+  7. housing : has housing loan? (categorical: 'no', 'yes', 'unknown')
+  8. loan : has personal loan? (categorical: 'no', 'yes', 'unknown')
+
+* **Group 2: Related with the last contact of the current campaign:**
+  9. contact : contact communication type (categorical: 'cellular', 'telephone')
+  10. month: last contact month of year (categorical: 'jan', 'feb', 'mar', ... 'nov', 'dec')
+  11. dayofweek : last contact day of the week (categorical: 'mon', 'tue', 'wed', 'thu', 'fri')
+
+* **Group 3: Other attributes:**
+  12. campaign : number of contacts performed during this campaign and for this client (numeric, includes last contact)
+  13. pdays : number of days that passed by after the client was last contacted from a previous campaign (numeric; 999 means client was   not previously contacted)
+  14. previous : number of contacts performed before this campaign and for this client (numeric)
+  15. poutcome : outcome of the previous marketing campaign (categorical: 'failure', 'nonexistent', 'success')
+
+* **Group 4: Social and economic context attributes:**
+  16. emp.var.rate : employment variation rate - quarterly indicator (numeric)
+  17. cons.price.idx : consumer price index - monthly indicator (numeric)
+  18. cons.conf.idx : consumer confidence index - monthly indicator (numeric)
+  19. euribor3m : euribor 3 month rate - daily indicator (numeric)
+  20. nr.employed : number of employees - quarterly indicator (numeric)
+
+* **Target variable:**
+  21. subscribe : has the client subscribed a term deposit? (numeric: 1='yes', 0='no')
+
+
+The selected model will be applied in a test set that contains 3000 observations and 20 variables, the same variables contained in the training set but without the variable subscribe, because this is the output that we want to predict. 
+
+## Data Summary
+In order to better understand the data set and get initial insights of the relationships of the variables, I will present some description, summary statistics and additional graphical representations.
+
+Below, one can observe the type of variables in the training dataset, it contains 9 categorical variables and 10 numerical variables. The variable client_id will not be considered as a predictor variable since it does explain the behavior of the target variable and it is only an identifier for each client.
+
+```{r echo=FALSE}
+
+setwd("C:/Users/azambranollano/OneDrive - IESEG/Alejandra/Statistical & Machine Learning Approaches for Marketing/Individual Project")
+train <- read.csv("bank_mkt_train.csv")
+sapply(train,class)
+
+```
+
+The below summary shows some statistic for each variable:
+
+```{r echo=FALSE}
+summary(train)
+inc=round(sum(train$subscribe==1)/nrow(train),4)
+```
+
+The next graph shows the distribution of the target variable, the incidence of the target variable is ```r inc``` 
+
+```{r, echo=FALSE, fig.width=3,fig.height=3, fig.align='center'}
+
+count.subs= train %>%
+    group_by(subscribe) %>%
+    summarise(count = n()) %>%
+    ggplot(aes(factor(subscribe), count)) +
+    geom_bar(stat="identity", fill="steelblue4") +
+    xlab("subscribe_answer") +
+    geom_text(aes(label=count), vjust=1.6, color="white", position = position_dodge(0.9), size=3.5, fontface='bold')+
+    theme(axis.text.y = element_blank(), axis.title.y = element_blank())
+
+count.subs
+
+```
+
+Now, we will look at the variable importance using a Random Forest model in order to explore the relationship of the most important ones and the target variable:
+
+
+```{r, echo=FALSE}
+
+X <- train[, 2:(ncol(train)-1)]
+y <- as.factor(train[, 'subscribe'])
+rf_model <- randomForest(X, y, mtry=3, ntree=100, importance=TRUE, seed=1)
+pimp_varImp <- PIMP(X, y, rf_model, S=10, parallel=F, seed=123)
+# Print out top most important variables
+pimp_varImp$VarImp[order(pimp_varImp$VarImp[, 1], decreasing=TRUE), ]
+
+```
+
+The five most important variables are month, euribor3m, emp.var.rate, cons.price.idx and cons.conf.idx. Most of these variables are related to Social and economic context attributes.
+
+The next charts show how these variables are related to the target variable. In the scatterplot, one can observe that the target variable it does not show a clear distribution pattern within each variable. Looking at the boxplots one can conclude that when the target variable is 0 (no subscribe) the euribor3m, emp.var.rate, and cons.price.idx present higher values than when the target variable is 1 (subscribe). Both subscribe answers (0 and 1) have similar values in the cons.conf.idx variable.
+
+Regarding the variable month, we can observe a higher incidence rate in December and October. The month with the lowest incidence is May.
+
+```{r, echo=FALSE, fig.width=6,fig.height=6, fig.align='center'}
+
+var.corr <- c("month","euribor3m","emp.var.rate","cons.price.idx","cons.conf.idx")
+mat.col <- train[,c("subscribe",var.corr)]
+
+cols <- rep('dodgerblue3', nrow(mat.col))  # subscribe
+cols[mat.col$subscribe == 0] <- 'goldenrod2'  # no subscribe
+pairs(mat.col,pch = 19, col=cols, oma=c(3,3,3,6))
+par(xpd = TRUE)
+legend("bottomright", legend = c(levels(as.factor(mat.col$subscribe))), fill = c("goldenrod2","dodgerblue3"), cex = 0.5)
+
+```
+
+```{r, echo=FALSE, fig.width=3,fig.height=3, fig.align='center'}
+f1<-ggplot(mat.col, aes(x = factor(subscribe), y = euribor3m)) + xlab("subscribe_answer") + geom_boxplot(fill='gray')
+f2<-ggplot(mat.col, aes(x = factor(subscribe), y = emp.var.rate)) + xlab("subscribe_answer") + geom_boxplot(fill='gray')
+f3<-ggplot(mat.col, aes(x = factor(subscribe), y = cons.price.idx)) + xlab("subscribe_answer") + geom_boxplot(fill='gray')
+f4<-ggplot(mat.col, aes(x = factor(subscribe), y = cons.conf.idx)) + xlab("subscribe_answer") + geom_boxplot(fill='gray')
+figure1 <- multi_panel_figure(columns = 2, rows = 2, panel_label_type = "none")
+figure1 <- figure1 %>%
+  fill_panel(f1, column = 1, row = 1) %>%
+  fill_panel(f2, column = 2, row = 1) %>%
+  fill_panel(f3, column = 1, row = 2) %>%
+  fill_panel(f4, column = 2, row = 2)
+
+figure1
+
+```
+
+```{r, echo=FALSE, fig.width=3,fig.height=3, fig.align='center'}
+
+
+month.subs2 <- train %>% 
+  group_by(month,subscribe) %>% 
+  count() %>% 
+  spread(subscribe,n) %>%
+  rename(no='0',yes='1') %>%
+  mutate(incidence = round((yes / sum(no,yes)),2)) %>%
+  ggplot(aes(month, incidence)) + 
+  geom_bar(stat = 'identity', position=position_dodge(),fill="steelblue4") + ylab("incidence") + 
+  scale_x_discrete(limits=    c("mar","apr","may","jun","jul","aug","sep","oct","nov","dec"))
+
+month.subs2
+
+```
+
+## Preprocessing
+In this section, I will explain the followed steps to process the data:
+
+1. Sanity check: The dataset was clean, we did not have to fill missing values nor replacing outliers.
+
+2. Categorical Variables: I created dummy variables for all categorical variables, also the variables job, education, month, day_of_week, age and pdays were grouped. For the grouped variables, dummy variables were created.
+
+3. Variable transformation: All variables were scaled. This was done in order to compare each model with the same data, in some models as K-Nearest Neighbors, scaled data is important because it uses distance measures. Also, using scaled data allows the learning process to be more stable and faster.
+
+## Feature engineering
+For training the model, I created some new predictive variables. As I mentioned in the previous section, dummy variables were created for all categorical variables and grouped variables for some variables. In addition, the following variables were created:
+
+* month_spring: it refers if the last contact was made in a spring month
+* month_summer: it refers if the last contact was made in a summer month
+* month_autumn: it refers if the last contact was made in a autumn month
+* month_winter: it refers if the last contact was made in a winter month
+* age_ge_mean: it refers if the age of the client is higher or lower than the age mean of all clients. The number 1 refers to higher and the number 0 refers to lower
+* no_contacted: Taking into account the special value 999 in padays, this variable refers if the client was contacted before or not this campaign.
+
+## Variable selection
+For the process of variable selection I used the fisher score. Fisher score is defined as follows:
+
+Fisher Score = $\frac{|\overline{x}_{s} - \overline{x}_{ns}|}{\sqrt{S^{2}_{s} + S^{2}_{ns}}}$
+
+With $\overline{x}_{s}$ and $\overline{x}_{ns}$ the mena value, and ${S^{2}_{s}$ and $S^{2}_{ns}$ the variance of a each variable respectively subscribers and non-subscribers. Typically, the 20 variables with the highest Fisher scores, indicating good predictive
+power, are selected. In our case the best 20 features are:
+
+* **nr.employed:** number of employees - quarterly indicator (numeric)
+* **euribor3m:** euribor 3 month rate - daily indicator (numeric) 
+* **emp.var.rate:** employment variation rate - quarterly indicator (numeric)
+* **no_contacted.0:** client was not contacted before (dummy)
+* **month.binned.aug_+_nov_+_jul_+_jun_+_may:** grouped variables of months aug, nov, jul, jun and may (dummy)
+* **month.binned.misc._level_pos.:** grouped variables months dec, mar, oct, sep (dummy)
+* **previous:** number of contacts performed before this campaign and for this client (numeric)
+* **poutcome.nonexistent:** outcome of the previous marketing campaign as nonexistent (dummy)
+* **contact.cellular:** contact communication type as cellular (dummy)
+* **pdays:** number of days that passed by after the client was last contacted from a previous campaign (numeric)
+* **pdays_freq_bin.[0, 4.2):** grouped variable of pdays, number of days between 0 and 4.2 (dummy)
+* **cons.price.idx:** consumer price index - monthly indicator (numeric)
+* **pdays_freq_bin.[4.2, 8.4):** grouped variable of pdays, number of days between 4.2 and 8.4 (dummy)
+* **month.may:** last contact in may (dummy)
+* **default.no:** client has not credit in default (dummy)
+* **month.oct:** last contact in oct (dummy)
+* **job.binned.misc._level_pos.:** grouped variable of jobs retired, self-employed, student and unemployed (dummy)
+* **month.mar:** last contact in mar (dummy)
+* **job.binned.blue-collar_+_services:** grouped variable of jobs blue-collar and services (dummy)
+* **month_autumn.0:** last contact was not in autum season (dummy)
+
+```{r echo=FALSE, include=FALSE}
+
+train_fitprocessed <- read.csv("train_fitprocessed.csv")
+valid_fitprocessed <- read.csv("valid_fitprocessed.csv")
+test_holdoutprocessed <- read.csv("test_holdoutprocessed.csv")
+
+```
+
+## Methodology
+In this section, I would show the different training models, their description and some results.
+
+## 1. Random Forest Classifier
+Random forest model is built from the decision tree model. Since decision tree is not the best model in practice because it tends to have a lot of inaccuracy in new samples (high variance), Random Forest comes to improve this performance; by combining a lot of individual decision trees that operate as an ensemble. Each individual tree in the random forest performances a class prediction and the class with the most votes becomes the final prediction. 
+
+The process of random forest takes the following steps:
+
+First, a number of variables 'mtry' is specified (This number represents a sample of the total predictive variables in the data, in our case the 20 selected features) such that at each node, the mtry variables are selected at random out of the total number of variables. The best split of these mtry variables is used to split the node. This value is constant while we grow all the decision trees for the model.
+
+Then, one should also specify the number of trees we want in our random forest model, and each of these trees is grown as much as possible.
+
+After that, we fit the model and we can predict new data by giving the prediction as the class with most votes, after evaluating each new observation in each tree of the model.
+
+**Advantages:**
+
+1. Using just a decision tree tends to overfit the data and have bad accuracy performance in unseen data. The process of combining the results of different decision trees helps to overcome this problem and give better results.
+2. You can use random forest models for both regression or classification tasks, so these types of models are very versatile.
+3. Random forests models create an uncorrelated forest of trees, where it forces each split to consider only a subset of the predictors; with this, all the predictors may be considered and we can be sure that the trees are independent.
+4. In random forest, you select the number of predictors to use, so if you use a small value, it could be helpful in cases where we have a large number of correlated predictors.
+
+**Disadvantages:**
+
+1. You need to manually choose the number of trees you will use to build the model, so you might be losing some important results by choosing the wrong number. The same thing for the number of variables to be considered at each split, however, this could be improved by using hyper-parameter tuning or cross-validation techniques.
+2. Generally, you have very little control of what the model does and the decisions it makes to build the trees.
+3. Compare with single decision trees, Random forests are complex, harder and time-consuming to construct. Also in terms of graphical representations, as it requires a high number of trees, the output is very unreadable.
+
+
+### Model Implementation 
+For fitting the Random Forest model, I tuned the parameters 'ntree', 'mtry' and 'nodesize', I did the cross-validation method with 10 folds to find the best Random Forest to fit in the data.
+
+The parameter 'nodesize' was considered to control the minimum size of terminal nodes and compare different results. The default value in R for classification problems is 1.
+
+```{r, eval=FALSE, warning = FALSE}
+# Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=10)
+
+# Define the model
+learner <- makeLearner("classif.randomForest", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Set hyper parameter tuning
+tune_params <- makeParamSet(
+  makeDiscreteParam('ntree', value=c(100, 250, 500, 750, 1000)),
+  makeDiscreteParam('mtry', value=round(sqrt((ncol(train_fitprocessed)-1) * c(0.1, 0.25, 0.5, 1, 2, 4)))),
+  makeDiscreteParam('nodesize',value=c(10,20,30,40,50))  
+)
+ctrl = makeTuneControlGrid()
+
+```
+
+The best tuning was
+
+                    Result: ntree=500; mtry=9; nodesize=40 : auc.test.mean=0.7686612
+
+```{r, include=FALSE}
+
+# Define the model
+learner <- makeLearner("classif.randomForest", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Apply optimal parameters to model
+pars_rf <- list(500,9,40)
+names(pars_rf) <- c('ntree','mtry','nodesize')
+best_rf <- setHyperPars(learner = learner, par.vals = pars_rf)
+
+# Retrain the model with tbe best hyper-parameters
+best_rf <- mlr::train(best_rf,train_task)
+
+```
+
+The confusion matrix and the train AUC are
+
+```{r, echo=FALSE}
+confusion_matrix <- best_rf$learner.model$confusion
+confusion_matrix
+```
+
+```{r, echo=FALSE}
+pred <- predict(best_rf, newdata=train_fitprocessed[, -1])
+performance(pred, measures=mlr::auc)
+
+```
+
+In general, one can conclude that the model has a better performance classifying the class no subscription. The AUC train shows a good performance, but when we compare it with the mean AUC test got it in the cross-validation (0.7686), it seems that the model overfit a little the data.
+
+Finally, we include the ROC curve of the Random Forest Model:
+
+```{r, echo=FALSE, fig.width=4,fig.height=4, fig.align='center'}
+df = generateThreshVsPerfData(pred, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+
+```
+
+
+## 2. Logistic Regression
+Logistic Regression is one of the most popular machine learning algorithms. Logistic Regression is similar to Linear Regression model, except that it is used to predict whether something is True or False (categorical output), instead of predicting a continuous output. In logistic regression, we fit an "S" shaped instead of a line to the data. The curve goes to zero to one. This curve shows the probability that something is True or False. If the probability is greater than a defined threshold (normally it is used 50%), we classify the observation as True (1) in other case as False (0). In general, built a logistic regression is simple. 
+
+The predictors variables can be both quantitave and qualitative. Logistic regression is given by the following equation, where each $x_{p}$ represents the predictors of the model, and $p(x)$ the probability of the response variable that we are trying to predict.
+
+$p(x) = \frac{e^{\beta_{0} + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{p}X_{p}}}{1 + e^{\beta_{0} + \beta_{1}X_{1} + \beta_{2}X_{2} + ... + \beta_{p}X_{p}}}$
+
+In Logistic Regression we do not used the same concept of a "residual" and least squares that is used in linear regression, instead we use a method called "maximum likelihood":
+
+$\iota (\beta_{0},\beta_{p}): \prod_{i:y_{i=1}} p(x_{i}) \prod_{i':y_{i'=0}} ( 1 - p(x_{i'}))$
+  
+  The estimates $\beta_{0}$ and $\beta_{p}$ are chosen to maximize this likelihood function. The maximum likelihood is the set of coefficients for which the probability of getting the data we have observed is maximum. These coefficients can also be used to explain whether there is some kind of relationship between the response variable and each one of the predictors, and also how strong is this relationship.
+
+**Advantages:**
+  
+1. The logistic regression is very simple and efficient to implement. We only have to define the variables that we want to use in the model. Also after fitting the model, one can evaluate if these variables have a relationship with the target variable by analyzing the estimated coefficients and the statistics associated with them. 
+2. Like linear regression, logistic regression does work better when you remove attributes that are unrelated to the output variable as well as attributes that are very similar (correlated) to each other. Therefore Feature Engineering plays an important role regarding the performance of the model.
+
+**Disadvantages:**
+  
+1. It can be used only for predict categorical outcomes.
+2. It is not useful for resolving non - linear problems since its decision surface is linear.
+
+
+### Model Implementation 
+For fitting the logistic regression model I used a cross-validation method with 5 folds to find the best coefficients. After finding the best set of coefficients the model was fitted in the whole data training.
+
+```{r, warning = FALSE}
+
+# Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=5, predict="both")
+
+# Define the model
+learner <- makeLearner("classif.logreg", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Simple cross-validation
+res <- resample(learner, train_task, rdesc, measures=list(mlr::auc, setAggregation(mlr::auc, train.mean)))
+
+best_learner <- learner
+
+```
+
+The model with the best performance during the cross-validation has an AUC test 0.791 and AUC train 0.794. We can conclude that the model does not overfit the data.
+
+Training again the logistic regresion with the best performance in the cross-validation we show the coefficients summary, AUC train and ROC curve.
+
+```{r, warning = FALSE}
+
+# Retrain the model with tbe best hyper-parameters
+best_lr <- mlr::train(best_learner, train_task)
+summary(best_lr$learner.model)
+
+```
+
+```{r, echo=FALSE}
+pred <- predict(best_lr, newdata=train_fitprocessed[, -1])
+performance(pred, measures=mlr::auc)
+
+```
+
+We can observe that the AUC train presents a slightly difference with the mean AUC train from the cross-validation. Also, the summary of the model shows that only ten variables have a significant relationship with the target variable.
+
+```{r, echo=FALSE, fig.width=4,fig.height=4, fig.align='center'}
+
+df = generateThreshVsPerfData(pred, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+
+```
+
+
+## 3. Extreme Gradient Boosting 
+EXtreme Gradient Boosting (XGBoost) is an advanced implementation of gradient boosting algorithm. XGBoost is a more regularized model to control over-fitting, which gives it better performance than a simple gradient boosting. XGBoost is one of the fastest implementations of gradient boosted trees.
+
+One of the major inefficiencies of gradient boosted trees is considering the potential loss for all possible splits to create a new branch (if you have a lot of features, therefore you have thousands of possible splits). XGBoost overcomes this inefficiency by looking at the distribution of the features across all data points in a leaf and using this information to reduce the search space of possible feature splits.
+
+The goal in XGBoost is to find an output $(O_{value})$ for each leaf that minimizes the next equation:
+  
+  $[\sum_{x = 1}^{n} L(y_{i},p_{i})] + \frac{1}{2}\lambda 0^{2}$
+  
+  Where the Loss Function in the classification problems is:
+  
+  $L(y_{i},p_{i}) = -[ y_{i}log(p_{i}) + (1 - y_{i})log(1-p_{i})]$
+  
+  **Advantages:**
+  
+1. Comparing with the gradient boosted it provides more information about the direction of gradients and how to get the minimum of our loss function. Regular gradient boosting uses the loss function as a proxy for minimizing the error of the overall model, XGBoost uses the 2nd order derivative as an approximation.
+2. In this model we can apply more advanced regularization, which improves model generalization.
+
+**Disadvantages:**
+  
+1. XGBoost is sensitive to outliers since every classifier is obliged to fix the errors in the predecessors; thus, the method is too dependent on outliers. 
+2. It has a lot of parameters and is more complex than other algorithms as logistic regression. It requires careful tuning of different hyper-parameter, and this could be a large time-consuming process.
+
+
+### Model Implementation
+For fitting the Extreme Gradient Boosting model I used a cross-validation method with 5 folds (in order to have a less time-consuming process) to find the best hyper-parameters. After finding the best ones, the model was fitted in the whole training dataset.
+
+```{r, eval=FALSE, warning = FALSE}
+
+## Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=5)
+
+# Define the model
+learner <- makeLearner("classif.xgboost", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Set hyper parameter tuning
+tune_params <- makeParamSet(
+  makeDiscreteParam('max_depth', value=c(2,3,4,5,6,7)),
+  makeDiscreteParam('eta', value=c(0.001,0.01,0.1)),
+  makeDiscreteParam('min_child_weight', value=c(2,4,6)),                
+  makeDiscreteParam('nrounds', value=c(400,600)),
+  makeDiscreteParam('colsample_bytree', value=c(0.5, 0.6,0.7,0.8,0.9)),
+  makeDiscreteParam('gamma',value=c(0,0.1,1)),                  
+  makeDiscreteParam('subsample',value = c(0.5, 0.6,0.7,0.8,0.9))
+)
+ctrl = makeTuneControlGrid()
+
+```
+
+The best tuning was
+
+Result: max_depth=7; eta=0.01; min_child_weight=2; nrounds=400; colsample_bytree=0.6; gamma=1; subsample=0.7 auc.test.mean=0.8011255
+
+```{r, include=FALSE}
+
+# Define the model
+learner <- makeLearner("classif.xgboost", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Apply optimal parameters to model
+pars_xgb <- list(7,0.01,2,400,0.6,1,0.7)
+names(pars_xgb) <- c('max_depth','eta','min_child_weight','nrounds','colsample_bytree','gamma','subsample')
+best_xgb <- setHyperPars(learner = learner, par.vals = pars_xgb)
+
+# Retrain the model with tbe best hyper-parameters
+best_xgb <- mlr::train(best_xgb,train_task)
+
+```
+
+The train AUC is
+
+```{r, echo=FALSE}
+pred <- predict(best_xgb, newdata=train_fitprocessed[, -1])
+performance(pred, measures=mlr::auc)
+
+```
+
+In general, the AUC train shows a good performance, but when we compare it with the mean AUC test got it in the cross-validation (0.8011), it seems that the model overfit a little the data.
+
+Finally, we include the ROC curve of the model:
+  
+```{r, echo=FALSE, fig.width=4,fig.height=4, fig.align='center'}
+df = generateThreshVsPerfData(pred, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+
+```
+
+
+## 4. Gradient Boosting
+Gradient Boosting is an extension of the boosting method. It uses a gradient descent algorithm which can optimize any differentiable loss function. An ensemble of trees are built one by one and then individual trees are summed sequentially. The next tree, tries to recover the loss, that means the difference between actual and predicted values of the previously built tree. 
+
+The process of the gradient boosting takes the following steps:
+  
+  For each observation, we should make an initial prediction that is the log(odds) convert it into a probability using the Logistic Function. Then, we measure the residuals like the difference between the observed and predicted values. After calculating the residuals, we should fit a decision tree to predict them. The outputs of these trees have to be transformed as follows:
+  
+  $\frac{\sum Residual_{i}}{\sum [Previous Probability_{i} * (1 - Previous Probability_{i})]}$
+  
+  Then, the predictors are update by combining the initial leaf with the new tree. The new tree is scaled by a learning rate and after having the new prediction we transform it to a probability and we will have a new predicted probability for each observation. Then, we calculated the new residuals and repeat the previous steps. This process is repeated until we have made the maximum number of trees specified or the residuals get very small.
+
+**Advantages:**
+  
+1. Gradient Boosting builds trees one at a time, where each new tree helps to correct errors made by the previously trained tree. 
+2. Supports different loss functions, since they are derived by optimizing an objective function, they can be used to solve different cost functions for classification and regression problems
+
+**Disadvantages:**
+  
+1. Training a Gradient Boosting could take longer because trees are built sequentially.
+2. Tunning could be harder because there are more parameters than in other models like Random Forest or K-Nearest Neighbors.
+3. It is sensitive to outliers since every classifier is obliged to fix the errors in the predecessors; thus, the method is too dependent on outliers.
+
+### Model Implementation
+For fitting the Gradient Boosting model I used a cross-validation method with 5 folds to find the best hyper-parameters. After finding the best ones the model was fitted in the whole training dataset. The hyper-parameters defined were 'n.trees', 'interaction.depth' and 'shrinkage'. And they refer to the number of threes in the model, the depth of each tree and the learning rate.
+
+```{r, eval=FALSE, warning = FALSE}
+
+# Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=5)
+
+# Define the model
+learner <- makeLearner("classif.gbm", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Set hyper parameter tuning
+tune_params <- makeParamSet(
+  makeDiscreteParam('n.trees', value=c(300,600,900)),
+  makeDiscreteParam('interaction.depth', value=c(3,5,7,9,11)),
+  makeDiscreteParam('distribution', value='bernoulli'),
+  makeDiscreteParam('shrinkage',value=c(0.1, 0.01, 0.001))
+)
+ctrl = makeTuneControlGrid()
+
+```
+
+After made the tuning we got
+
+Result: n.trees=600; interaction.depth=11; distribution=bernoulli; shrinkage=0.001 : auc.test.mean=0.7935094
+
+```{r, include=FALSE}
+
+# Define the model
+learner <- makeLearner("classif.gbm", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Apply optimal parameters to model
+pars_gb <- list(600,11,0.001)
+names(pars_gb) <- c('n.trees','interaction.depth','shrinkage')
+best_gb <- setHyperPars(learner = learner, par.vals = pars_gb)
+
+# Retrain the model with tbe best hyper-parameters
+best_gb <- mlr::train(best_gb,train_task)
+
+```
+
+The train AUC is
+
+```{r, echo=FALSE}
+pred <- predict(best_gb, newdata=train_fitprocessed[, -1])
+performance(pred, measures=mlr::auc)
+
+```
+
+This model shows a good performance, the train AUC is good and it seems that it does not overfit the data because it is close to the mean test AUC that we got in the cross-validation.
+
+Finally, we include the ROC curve of the model:
+  
+```{r, echo=FALSE, fig.width=4,fig.height=4, fig.align='center'}
+df = generateThreshVsPerfData(pred, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+
+```
+
+
+## 5. K-Nearest Neighbors
+This algorithm is a simple way to classify data. The KNN algorithm assumes that similar things exist in close proximity. The KNN classifier first identifies the K points in the training data that are closest to the observation $x_{0}$ represented by $N_{0}$, it then estimates the conditional probability for class j as the fraction of points whose response values are equal j:
+  
+  $Pr(Y = j| X =x_{0}) = \frac{1}{K}\sum_{i \in N_{0}} I(y_{i}=j)$
+  
+Finally, KNN classifies the test observation $x_{0}$ to the class with the largest probability. In KNN there is no explicit training phase or it is very minimal, KNN keeps all the training data to classify the test data based on feature similarity, it measures how closely out-of-sample features resemble our training set determines how we classify a given data point.
+
+For building a KNN model, we only have to define the K value, which is the number of nearest neighbors to define the class.
+
+**Advantages:**
+  
+1. K-Nearest Neighbors algorithm is easy to implement. 
+2. It is useful for no-linear data because it does make assumptions about the underlying data distribution.
+3. Few parameters to tunes, K and the distance metric.
+
+
+**Disadvantages:**
+  
+1. It is computationally expensive because the algorithm stores all the training data and each new observation is classified by computing the distances between the nearest points.
+2. There is not a method to define the best value of K. Low values of K can overfit the data. 
+3. Sensitiveness to very unbalanced datasets, where most entities belong to one or a few classes. If we set K with large values, we will tend to classify the new observations in the same category (category with more samples over the all training dataset)
+
+### Model Implementation 
+For fitting the K-Nearest Neighbors model I used a cross-validation method with 10 folds to find the best K value. 
+
+```{r, eval=FALSE, warning = FALSE}
+
+# Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=10)
+
+# Define the model
+learner <- makeLearner("classif.kknn", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Set hyper parameter tuning
+tune_params <- makeParamSet(
+  makeDiscreteParam('k', value=c(1:30))
+)
+ctrl = makeTuneControlGrid()
+
+```
+
+The best value for k is
+
+Result: k=30 : auc.test.mean=0.7711269
+
+```{r, echo=FALSE, warning = FALSE}
+
+# Set up cross-validation
+rdesc = makeResampleDesc("CV", iters=10)
+
+# Define the model
+learner <- makeLearner("classif.kknn", predict.type="prob", fix.factors.prediction=T)
+
+# Define the task
+train_task <- makeClassifTask(id="bank_train", data=train_fitprocessed[, -1], target="subscribe")
+
+# Apply optimal parameters to model
+pars_knn <- list(30)
+names(pars_knn) <- c('k')
+best_knn <- setHyperPars(learner = learner,par.vals = pars_knn)
+
+# Retrain the model with tbe best hyper-parameters
+best_knn <- mlr::train(best_knn,train_task)
+
+```
+
+The train AUC is
+
+```{r, echo=FALSE}
+pred <- predict(best_knn, newdata=train_fitprocessed[, -1])
+performance(pred, measures=mlr::auc)
+
+```
+
+This model shows a good performance using the train AUC, however it is higher than the mean test AUC (0.7711) calculated in the cross-validation method what suggests that the model overfit the data.
+
+Finally, we include the ROC curve of the model:
+  
+```{r, echo=FALSE, fig.width=4,fig.height=4, fig.align='center'}
+df = generateThreshVsPerfData(pred, measures = list(fpr, tpr, mmce))
+plotROCCurves(df)
+
+```
+
+## Model benchmarking
+
+For comparing the performance of each model the full dataset was divided into train and valid. The models Random Forest Classifier, Logistic Regression, Extreme Gradient Boosting, Gradient Boosting, and K-Nearest Neighbors were fitted in the training set and then they were evaluated in the valid set using the AUC metric.
+
+The results showed in the previous section were gotten by fitting each model in the training dataset. In all models, cross-validation was performed and we used the same data for training and validation.
+
+The table below shows the different performances of each model in the valid dataset:
+  
+```{r, echo=FALSE}
+pred <- predict(best_rf, newdata=valid_fitprocessed[, -1])
+Random_Forest <- performance(pred, measures=list(auc,acc))
+
+pred <- predict(best_lr, newdata=valid_fitprocessed[, -1])
+Logistic_Regression <- performance(pred, measures=list(auc,acc))
+
+pred <- predict(best_xgb, newdata=valid_fitprocessed[, -1])
+XGBoosting <- performance(pred, measures=list(auc,acc))
+
+pred <- predict(best_gb, newdata=valid_fitprocessed[, -1])
+Gradient_Boosting <- performance(pred, measures=list(auc,acc))
+
+pred <- predict(best_knn, newdata=valid_fitprocessed[, -1])
+KNN <- performance(pred, measures=list(auc,acc))
+
+
+results <- rbind(Random_Forest,Logistic_Regression,XGBoosting,Gradient_Boosting,KNN)
+results
+
+```
+
+We can observe that the models with the best performance are the Logistic Regression and the Gradient Boosting taking into account only the AUC score, regarding accuracy it seems that all of them have a similar performance. If we consider the train AUC scores, the Logistic Regression and Gradient Boosting show to be more stables than the other models.
+
+In the submission in the Kaggle competition with the Gradient Boosting model I got in the 30% of the test holdout data set an AUC of 0.793 and in the 70% an AUC of 0.758.
+
+In the submission in the Kaggle competition with the Logistic Regression model I got in the 30% of the test holdout data set an AUC of 0.768 and in the 70% an AUC of 0.789. It seems that the logistic regression is the model more stable.
+
+
+## References
+
+Cao, X.H., Stojkovic, I. & Obradovic, Z. A robust data scaling algorithm to improve classification accuracies in biomedical data. BMC Bioinformatics 17, 359 (2016). https://doi.org/10.1186/s12859-016-1236-x
+
+Verbeke, Wouter & Dejaeger, Karel & Martens, David & Hur, Joon & Baesens, Bart. (2012). New insights into churn prediction in the telecommunication sector: A profit driven data mining approach. European Journal of Operational Research. 218. 211-229. 10.1016/j.ejor.2011.09.031. 
+
+T. Chen, C. Guestrin, XGBoost: A Scalable Tree Boosting System, 2016
+
+James, G., Witten, D., Hastie, T. and Tibshirani, R. (n.d.). An introduction to statistical learning. 
